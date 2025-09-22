@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Manager - REST API Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border: 1px solid #ccc;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .add-task-form {
+            background: #f9f9f9;
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input[type="text"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            font-size: 14px;
+        }
+
+        textarea {
+            height: 60px;
+        }
+
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .btn:hover {
+            background: #0056b3;
+        }
+
+        .btn-delete {
+            background: #dc3545;
+            padding: 5px 10px;
+            font-size: 12px;
+            margin-left: 5px;
+        }
+
+        .btn-delete:hover {
+            background: #c82333;
+        }
+
+        .task-item {
+            background: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+        }
+
+        .task-item.completed {
+            background: #f8f9fa;
+            opacity: 0.7;
+        }
+
+        .task-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin: 0 0 5px 0;
+        }
+
+        .task-description {
+            color: #666;
+            margin: 5px 0;
+        }
+
+        .task-actions {
+            margin-top: 10px;
+        }
+
+        .task-status {
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+
+        .completed-text {
+            color: #28a745;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #f5c6cb;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #c3e6cb;
+        }
+
+        .api-status {
+            padding: 10px;
+            margin-bottom: 15px;
+            background: #e9ecef;
+            border: 1px solid #ccc;
+        }
+
+        .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #dc3545;
+            margin-right: 8px;
+        }
+
+        .status-dot.connected {
+            background: #28a745;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 15px;
+            align-items: end;
+        }
+
+        .form-row .form-group {
+            flex: 1;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Task Manager</h1>
+
+        <div class="api-status">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">Connecting to API...</span>
+        </div>
+
+        <div id="messageContainer"></div>
+
+        <form id="addTaskForm" class="add-task-form">
+            <h3 style="margin-bottom: 20px; color: #495057;">Add New Task</h3>
+
+            <div class="form-group">
+                <label for="taskTitle">Task Title</label>
+                <input type="text" id="taskTitle" name="title" required placeholder="Enter task title">
+            </div>
+
+            <div class="form-group">
+                <label for="taskDescription">Description</label>
+                <textarea id="taskDescription" name="description"
+                    placeholder="Enter task description (optional)"></textarea>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="taskPriority">Priority</label>
+                    <select id="taskPriority" name="priority">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn">Add Task</button>
+            </div>
+        </form>
+
+        <div class="task-list">
+            <h3 style="margin-bottom: 20px; color: #495057;">Your Tasks</h3>
+            <div id="taskContainer">
+                <div class="loading">Loading tasks...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class TaskManager {
+            constructor() {
+                // Spring Boot backend API URL
+                this.apiUrl = 'http://localhost:8080/api/tasks';
+                this.tasks = [];
+                this.init();
+            }
+
+            async init() {
+                this.bindEvents();
+                await this.loadTasks();
+            }
+
+            bindEvents() {
+                document.getElementById('addTaskForm').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.addTask();
+                });
+            }
+
+            async loadTasks() {
+                try {
+                    this.updateStatus('connected', 'Connected to Spring Boot API');
+                    const response = await fetch(this.apiUrl);
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    this.tasks = await response.json();
+                    this.renderTasks();
+                    this.showMessage('Tasks loaded successfully!', 'success');
+
+                } catch (error) {
+                    console.error('Error loading tasks:', error);
+                    this.updateStatus('disconnected', 'Spring Boot API connection failed - Demo mode');
+                    this.loadDemoTasks();
+                    this.showMessage('Backend API unavailable. Showing demo data. Make sure Spring Boot server is running on localhost:8080', 'error');
+                }
+            }
+
+            loadDemoTasks() {
+                // Fallback demo data
+                this.tasks = [
+                    {
+                        id: 1,
+                        title: 'Complete project documentation',
+                        description: 'Write comprehensive documentation for the REST API project',
+                        priority: 'high',
+                        completed: false
+                    },
+                    {
+                        id: 2,
+                        title: 'Review code changes',
+                        description: 'Review pull requests and provide feedback',
+                        priority: 'medium',
+                        completed: true
+                    },
+                    {
+                        id: 3,
+                        title: 'Update dependencies',
+                        description: 'Update npm packages to latest versions',
+                        priority: 'low',
+                        completed: false
+                    }
+                ];
+                this.renderTasks();
+            }
+
+            async addTask() {
+                const form = document.getElementById('addTaskForm');
+                const formData = new FormData(form);
+
+                const newTask = {
+                    title: formData.get('title'),
+                    description: formData.get('description') || '',
+                    completed: false
+                };
+
+                try {
+                    const response = await fetch(this.apiUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(newTask)
+                    });
+
+                    if (response.ok) {
+                        const createdTask = await response.json();
+                        // Add priority for display (since backend doesn't have priority field)
+                        createdTask.priority = formData.get('priority');
+                        this.tasks.unshift(createdTask);
+                        this.showMessage('Task created successfully!', 'success');
+                        this.renderTasks();
+                        form.reset();
+                    } else {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'Failed to create task');
+                    }
+                } catch (error) {
+                    console.error('Error adding task via API:', error);
+                    // Fallback: add locally with generated ID
+                    newTask.id = Date.now();
+                    newTask.priority = formData.get('priority');
+                    newTask.createdAt = new Date().toISOString();
+                    this.tasks.unshift(newTask);
+                    this.renderTasks();
+                    form.reset();
+                    this.showMessage('Task added locally (API unavailable): ' + error.message, 'error');
+                }
+            }
+
+            async deleteTask(id) {
+                try {
+                    const response = await fetch(`${this.apiUrl}/${id}`, {
+                        method: 'DELETE',
+                    });
+
+                    if (response.ok) {
+                        // Remove from local array and re-render
+                        this.tasks = this.tasks.filter(task => task.id !== id);
+                        this.renderTasks();
+                        this.showMessage('Task deleted successfully!', 'success');
+                    } else {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'Failed to delete task');
+                    }
+                } catch (error) {
+                    console.error('Error deleting task via API:', error);
+                    // Remove locally as fallback
+                    this.tasks = this.tasks.filter(task => task.id !== id);
+                    this.renderTasks();
+                    this.showMessage('Task deleted locally (API unavailable): ' + error.message, 'error');
+                }
+            }
+
+            async toggleTask(id) {
+                const task = this.tasks.find(t => t.id === id);
+                if (!task) return;
+
+                const updatedTask = {
+                    title: task.title,
+                    description: task.description,
+                    completed: !task.completed
+                };
+
+                try {
+                    const response = await fetch(`${this.apiUrl}/${id}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(updatedTask)
+                    });
+
+                    if (response.ok) {
+                        const responseTask = await response.json();
+                        // Update local array with response data
+                        const index = this.tasks.findIndex(t => t.id === id);
+                        this.tasks[index] = { ...responseTask, priority: task.priority };
+                        this.showMessage('Task updated successfully!', 'success');
+                        this.renderTasks();
+                    } else {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'Failed to update task');
+                    }
+                } catch (error) {
+                    console.error('Error updating task via API:', error);
+                    // Update locally as fallback
+                    const index = this.tasks.findIndex(t => t.id === id);
+                    this.tasks[index].completed = !this.tasks[index].completed;
+                    this.renderTasks();
+                    this.showMessage('Task updated locally (API unavailable): ' + error.message, 'error');
+                }
+            }
+
+            renderTasks() {
+                const container = document.getElementById('taskContainer');
+
+                if (this.tasks.length === 0) {
+                    container.innerHTML = '<div class="loading">No tasks available. Add a new task to get started!</div>';
+                    return;
+                }
+
+                container.innerHTML = this.tasks.map(task => `
+                    <div class="task-item ${task.completed ? 'completed' : ''}">
+                        <div class="task-header">
+                            <h4 class="task-title">${this.escapeHtml(task.title)}</h4>
+                            <span class="task-priority priority-${task.priority || 'medium'}">${task.priority || 'medium'}</span>
+                        </div>
+                        <p class="task-description">${this.escapeHtml(task.description || 'No description provided')}</p>
+                        ${task.createdAt ? `<p style="font-size: 12px; color: #999; margin: 5px 0;">Created: ${new Date(task.createdAt).toLocaleString()}</p>` : ''}
+                        ${task.updatedAt ? `<p style="font-size: 12px; color: #999; margin: 5px 0;">Updated: ${new Date(task.updatedAt).toLocaleString()}</p>` : ''}
+                        <div class="task-actions">
+                            <span class="task-status ${task.completed ? 'completed-text' : ''}">
+                                ${task.completed ? '✓ Completed' : '○ Pending'}
+                            </span>
+                            <div>
+                                <button class="btn" onclick="taskManager.toggleTask(${task.id})" style="padding: 6px 15px; font-size: 14px;">
+                                    ${task.completed ? 'Mark Pending' : 'Mark Complete'}
+                                </button>
+                                <button class="btn btn-delete" onclick="taskManager.deleteTask(${task.id})">
+                                    Delete
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            updateStatus(status, message) {
+                const dot = document.getElementById('statusDot');
+                const text = document.getElementById('statusText');
+
+                dot.className = `status-dot ${status}`;
+                text.textContent = message;
+            }
+
+            showMessage(message, type = 'success') {
+                const container = document.getElementById('messageContainer');
+                const messageDiv = document.createElement('div');
+                messageDiv.className = type;
+                messageDiv.textContent = message;
+
+                container.appendChild(messageDiv);
+
+                // Auto-remove message after 3 seconds
+                setTimeout(() => {
+                    messageDiv.remove();
+                }, 3000);
+            }
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        }
+
+        // Initialize the task manager
+        const taskManager = new TaskManager();
+    </script>
+</body>
+
+</html>
