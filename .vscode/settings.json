@@ -1,0 +1,9 @@
+{
+    "java.project.sourcePaths": [
+        "Day-7/task-management/src/main/java",
+        "Day-4",
+        "Day-3",
+        "Day-2",
+        "Day-1"
+    ]
+}
